@@ -118,6 +118,65 @@ public MenuId MenuId { get; private set; }    // auto-detected as VO
 public ActionId ActionId { get; private set; } // auto-detected as VO
 ```
 
+## Step 2b: Generate Value Object classes (if not existing)
+
+When the aggregate has properties with custom VO types (annotated `// VO: {TypeName}` or detected as non-primitive non-string types), check if those VO files exist in `Domain/Aggregates/{AggregateFolder}/`.
+
+For each VO that does **not** exist yet, generate two files:
+
+### 1. VO class — `{TypeName}.cs` (same folder as Aggregate Root)
+
+```csharp
+using System.Text.RegularExpressions;
+using {DomainNamespace}.Aggregates.{AggregateFolder}.Exceptions;
+
+namespace {DomainNamespace}.Aggregates.{AggregateFolder};
+
+/// <summary>
+/// {Description}（{format rule, e.g. 8碼數字}）
+/// </summary>
+public sealed record {TypeName}
+{
+    private static readonly Regex Pattern = new(@"...", RegexOptions.Compiled);
+
+    public {UnderlyingType} Value { get; }
+
+    public {TypeName}({UnderlyingType} value)
+    {
+        if (/* validation fails */)
+            throw new Invalid{TypeName}DomainException(value);
+
+        Value = value;
+    }
+
+    public static implicit operator {UnderlyingType}({TypeName} vo) => vo.Value;
+}
+```
+
+### 2. Domain exception — `Invalid{TypeName}DomainException.cs` in `Exceptions/` subfolder
+
+```csharp
+namespace {DomainNamespace}.Aggregates.{AggregateFolder}.Exceptions;
+
+public class Invalid{TypeName}DomainException : DomainException
+{
+    public Invalid{TypeName}DomainException({UnderlyingType} value)
+        : base($"{TypeName} '{{value}}' 格式不正確（{format description}）。")
+    {
+    }
+}
+```
+
+### Rules
+
+- **Always throw `DomainException` subclasses** — never `ArgumentException` or `Exception`
+- Exception class name is always `Invalid{TypeName}DomainException`, placed in `Exceptions/` subfolder
+- Derive the underlying type from context (usually `string`, `int`, or `Guid`)
+- If the validation rule is not obvious from the property comment (e.g., `// VO: SerialNumber` with no format hint), ask the user before generating
+- If the `Exceptions/` folder doesn't exist, create it by writing the first exception file there
+
+---
+
 ## Step 3: Generate the Configuration class
 
 ### File location
