@@ -27,30 +27,22 @@ Ask (or infer from context):
 在專案根目錄執行（`YP.FinancialManagementSystem.Web/`）：
 
 ```bash
-ng g c features/{group}/{kebab-name}/{kebab-name} \
-  --standalone \
-  --flat \
-  --type="" \
-  --skip-tests
+ng g c features/{group}/{kebab-name}/index --standalone
 ```
-
-- `--flat` — 不額外建子資料夾（已在路徑中指定）
-- `--type=""` — 產出 `{kebab-name}.ts`，不加 `.component` 後綴
-- `--skip-tests` — 不產生 spec 檔（spec 另外手動建立）
 
 產出：
 ```
-features/{group}/{kebab-name}/
-├── {kebab-name}.ts
-├── {kebab-name}.html
-└── {kebab-name}.scss
+features/{group}/{kebab-name}/index
+├── index.ts
+├── index.html
+└── index.scss
 ```
 
 ---
 
 ## Step 3: Create `models.ts`
 
-在同資料夾建立 `models.ts`，內容依業務需求填入，空白範本：
+在/{kebab-name}建立 `models.ts`，內容依業務需求填入，空白範本：
 
 ```typescript
 // ==================== {Domain} ====================
@@ -95,7 +87,7 @@ export type { {CoreModel} } from '@app/core/models/{coreModel}';
   children: [
     {
       path: '',
-      loadComponent: () => import('@app/features/{group}/{kebab-name}/{kebab-name}')
+      loadComponent: () => import('@app/features/{group}/{kebab-name}/index')
         .then(m => m.{ClassName}),
       data: { reuseRoute: true }
     }
