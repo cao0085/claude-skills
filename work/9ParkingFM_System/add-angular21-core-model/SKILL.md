@@ -1,31 +1,39 @@
 ---
-name: 9pfms:add-angular21-core-model
-description: "Create a new core model file in @app/core/models/ that maps DB columns to a TypeScript interface. Trigger when user says /add-angular21-core-model, provides DB column definitions, or asks to create a base model aligned to the database."
+name: add-angular21-core-model
+description: "Scaffold a typed core model from DB column definitions in an Angular 21 project. Use this skill whenever: user runs /add-angular21-core-model, provides DB column definitions to map to TypeScript, or asks to create/generate a base model — especially when project-specific file conventions, naming rules, or alignment to existing model files are involved."
 ---
 
 # Add Angular Core Model
 
-根據使用者提供的 DB 欄位，建立對應的 TypeScript interface 並存入 `src/app/core/models/`。
+Generate a TypeScript interface from DB column definitions and save it to `src/app/core/models/`.
 
 ---
 
-## Step 1: 收集資訊
+## Workflow
 
-使用者會提供：
-- **Model 名稱**（e.g., `Company`）
-- **DB 欄位清單**（欄位名稱、型別、是否 NULL）
+### Step 1: Collect Info
 
-若使用者只給欄位清單，從欄位名稱推斷 Model 名稱。
+1. If the user hasn't provided any info, ask for:
+   - DB column definitions (name + type + nullable)
+   - Model/entity name (e.g., `Company`)
+   - Feature group and feature name (e.g., group: `admin`, feature: `company`)
+   - Any enum fields? If yes, ask for enum name, members, and their display labels
+     (e.g., `CompanyType: LimitedCompany=0 有限公司, CorporationLimited=1 股份有限公司`)
+2. If the user only provides a column list, infer the model name from the column names
+   (e.g., columns prefixed with `Company` → model name `Company`)
+3. Confirm the following before generating:
+   - Core model filename (e.g., `company.ts`)
+   - Feature path (e.g., `src/app/features/admin/company/models.ts`)
 
----
+### Step 2: Map Types
 
-## Step 2: 型別對應規則
+Apply the following rules to each column:
 
-### DB → TypeScript 型別對照
+**DB → TypeScript Type Mapping**
 
-| DB 型別 | TypeScript | 備註 |
+| DB Type | TypeScript | Notes |
 |---|---|---|
-| `uniqueidentifier` | `string` | Guid |
+| `uniqueidentifier` | `string` | GUID |
 | `int` / `bigint` | `number` | |
 | `nvarchar` / `varchar` | `string` | |
 | `bit` | `boolean` | |
@@ -33,63 +41,158 @@ description: "Create a new core model file in @app/core/models/ that maps DB col
 | `decimal` / `float` | `number` | |
 | `nvarchar(max)` | `string` | |
 
-### NULL 規則
-- `NOT NULL` → 一般型別，e.g., `string`
-- `NULL` → union with null，e.g., `string | null`
+**Nullability Rules**
+- `NOT NULL` → plain type, e.g., `string`
+- `NULL` → union with null, e.g., `string | null`
 
-### 命名規則
-- DB 欄位是 PascalCase → TypeScript 屬性用 **camelCase**
-- e.g., `MenuInfoId` → `menuInfoId`、`IsActive` → `isActive`
+> ⚠️ Never use `?` optional for nullable columns — always use `| null`
 
----
+**Naming Convention**
+- DB columns are PascalCase → TypeScript properties use **camelCase**
+- e.g., `MenuInfoId` → `menuInfoId`, `IsActive` → `isActive`
 
-## Step 3: 產生檔案
+**Enum Fields**
+- If the user provides enum info, use the enum name as the field type instead of `number`
+- e.g., `companyType: CompanyType` instead of `companyType: number`
 
-檔名：`{camelCaseModelName}.ts`（e.g., `company.ts`）
-路徑：`src/app/core/models/{camelCaseModelName}.ts`
+### Step 3: Generate Files
 
-格式：
+Generate two files:
+
+**File 1 — Core Model**
+- Path: `src/app/core/models/{camelCaseModelName}.ts`
+
+Output format (no enum):
 
 ```typescript
-// 基礎 DB Model - 對齊資料庫 (前端使用 camelCase)
+// Base DB Model - aligned to database (frontend uses camelCase)
 export interface {ModelName} {
     {camelCaseField}: {TsType};           // {OriginalDbColumn}: {DbType} NOT NULL
     {camelCaseField}: {TsType} | null;    // {OriginalDbColumn}: {DbType} NULL
-    // ...
 }
 ```
 
-每個欄位行末加上 `// {原始DB欄位名}: {DB型別} {NOT NULL | NULL}` 的 inline comment。
+Output format (with enum) — declare enum before the interface, append frontend extensions after:
 
----
-
-## 範例
-
-**使用者輸入：**
-```
-CompanyInfoId uniqueidentifier NOT NULL
-CompanyName nvarchar(100) NOT NULL
-TaxId nvarchar(20) NULL
-IsActive bit NOT NULL
-CreatedAt datetime2 NOT NULL
-```
-
-**產出 `companyInfo.ts`：**
 ```typescript
-// 基礎 DB Model - 對齊資料庫 (前端使用 camelCase)
-export interface CompanyInfo {
-    companyInfoId: string;        // CompanyInfoId: uniqueidentifier NOT NULL
-    companyName: string;          // CompanyName: nvarchar(100) NOT NULL
-    taxId: string | null;         // TaxId: nvarchar(20) NULL
-    isActive: boolean;            // IsActive: bit NOT NULL
-    createdAt: Date;              // CreatedAt: datetime2 NOT NULL
+export enum {EnumName} {
+    {Member} = {value},
 }
+
+// Base DB Model - aligned to database (frontend uses camelCase)
+export interface {ModelName} {
+    {camelCaseField}: {TsType};           // {OriginalDbColumn}: {DbType} NOT NULL
+    {camelCaseField}: {EnumName};         // {OriginalDbColumn}: int NOT NULL
+}
+
+// Frontend extensions
+export const {ENUM_NAME}_LABEL: Record<{EnumName}, string> = {
+    [{EnumName}.{Member}]: '{display label}',
+};
+
+export const {ENUM_NAME}_OPTIONS = Object.entries({ENUM_NAME}_LABEL).map(
+    ([value, label]) => ({ label, value: Number(value) as {EnumName} })
+);
+
+@Pipe({ name: '{camelCaseEnumName}', standalone: true })
+export class {EnumName}Pipe implements PipeTransform {
+    transform(value: {EnumName}): string {
+        return {ENUM_NAME}_LABEL[value] ?? '';
+    }
+}
+```
+
+Add an inline comment at the end of each field: `// {OriginalDbColumn}: {DbType} {NOT NULL | NULL}`
+
+**File 2 — Feature Model**
+- Path: `src/app/features/{group}/{feature-name}/models.ts`
+
+This file is the single entry point for all models used within the feature.
+All access to core models must go through this file — never import directly from `@app/core/models/` inside the feature.
+
+At this stage, only generate the re-export. The user will extend it later with `Pick<>`, `extends`, DTOs, etc.
+
+Output format (no enum):
+
+```typescript
+import { {ModelName} } from '@app/core/models/{camelCaseModelName}';
+export type { {ModelName} } from '@app/core/models/{camelCaseModelName}';
+```
+
+Output format (with enum):
+
+```typescript
+import { {ModelName} } from '@app/core/models/{camelCaseModelName}';
+export type { {ModelName} } from '@app/core/models/{camelCaseModelName}';
+export { {EnumName}, {EnumName}Pipe, {ENUM_NAME}_OPTIONS } from '@app/core/models/{camelCaseModelName}';
 ```
 
 ---
 
-## Project context
+## Example
 
-- 路徑：`src/app/core/models/`
-- 用途：對齊 DB，供各 feature 的 `models.ts` 以 `Pick<>` / `extends` / re-export 使用
-- 命名：檔名與 interface 名稱一致（camelCase 檔名 / PascalCase interface）
+**Input:**
+```
+Id uuid NOT NULL
+CompanyCode nvarchar(20) NOT NULL
+FullName nvarchar(100) NOT NULL
+ShortName nvarchar(50) NOT NULL
+EnglishName nvarchar(100) NULL
+CompanyType int NOT NULL  (enum: LimitedCompany=0 有限公司, CorporationLimited=1 股份有限公司, SoleProprietorship=2 獨資, Partnership=3 合夥)
+IsActive bit NOT NULL
+```
+
+**Output `src/app/core/models/company.ts`:**
+```typescript
+export enum CompanyType {
+    LimitedCompany = 0,
+    CorporationLimited = 1,
+    SoleProprietorship = 2,
+    Partnership = 3,
+}
+
+// Base DB Model - aligned to database (frontend uses camelCase)
+export interface Company {
+    id: string;                   // Id: uuid NOT NULL
+    companyCode: string;          // CompanyCode: nvarchar(20) NOT NULL
+    fullName: string;             // FullName: nvarchar(100) NOT NULL
+    shortName: string;            // ShortName: nvarchar(50) NOT NULL
+    englishName: string | null;   // EnglishName: nvarchar(100) NULL
+    companyType: CompanyType;     // CompanyType: int NOT NULL
+    isActive: boolean;            // IsActive: bit NOT NULL
+}
+
+// Frontend extensions
+export const COMPANY_TYPE_LABEL: Record<CompanyType, string> = {
+    [CompanyType.LimitedCompany]: '有限公司',
+    [CompanyType.CorporationLimited]: '股份有限公司',
+    [CompanyType.SoleProprietorship]: '獨資',
+    [CompanyType.Partnership]: '合夥',
+};
+
+export const COMPANY_TYPE_OPTIONS = Object.entries(COMPANY_TYPE_LABEL).map(
+    ([value, label]) => ({ label, value: Number(value) as CompanyType })
+);
+
+@Pipe({ name: 'companyType', standalone: true })
+export class CompanyTypePipe implements PipeTransform {
+    transform(value: CompanyType): string {
+        return COMPANY_TYPE_LABEL[value] ?? '';
+    }
+}
+```
+
+**Output `src/app/features/admin/company/models.ts`:**
+```typescript
+import { Company } from '@app/core/models/company';
+export type { Company } from '@app/core/models/company';
+export { CompanyType, CompanyTypePipe, COMPANY_TYPE_OPTIONS } from '@app/core/models/company';
+```
+
+---
+
+## Project Context
+
+- Path: `src/app/core/models/`
+- Purpose: Align to DB schema; consumed by feature `models.ts` via `Pick<>`, `extends`, or re-export
+- Naming: filename matches interface name (camelCase filename / PascalCase interface name)

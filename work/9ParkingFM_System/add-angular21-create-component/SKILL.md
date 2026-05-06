@@ -119,3 +119,22 @@ export type { {CoreModel} } from '@app/core/models/{coreModel}';
 - 路由檔：`src/app/app.routes.ts`
 - 路由使用 `menuRouteGuard` + `loadComponent` lazy loading
 - 所有 feature component 皆 `standalone: true`，無 NgModule
+
+
+### 2026-05-01 些微更新
+
+core/pipes
+
+testcase style
+
+
+標記 Component 變數是 UI State 還是 SOT 大約分類
+
+skeleton
+
+// 打 api 的寫法 detail 拿到再送 or 進入 detail 打 api 
+
+
+// form 遇到input switch 按鈕 可以左右並排
+
+// directives
