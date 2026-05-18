@@ -35,7 +35,8 @@ This file is for personal use only — do not commit to the repository.
 
 **Rules:**
 - Mirror every public method from the original api.ts
-- Replace all API calls with `of(mockData)` 
+- `get{Model}s(params: HttpParams)` — accept `HttpParams` but ignore it; return `of(MOCK_{MODEL}S)`
+- Replace all API calls with `of(mockData)`
 - Keep the same return types
 - Declare mock data as constants above the class
 - Use `signal()` for resource-like methods (those that use `createGetResource`)
@@ -44,7 +45,8 @@ Output format:
 
 ```typescript
 // DEV ONLY — do not commit
-import { computed, Signal } from '@angular/core';
+import { computed, signal, Signal } from '@angular/core';
+import { HttpParams } from '@angular/common/http';
 import { of } from 'rxjs';
 import {
     Browse{Model}Dto,
@@ -63,7 +65,7 @@ const MOCK_{MODEL}_DETAIL: Get{Model}Dto = {
 
 export class {ServiceName}Mock {
 
-    get{Model}s() {
+    get{Model}s(_params: HttpParams) {
         return of(MOCK_{MODEL}S);
     }
 
@@ -96,11 +98,11 @@ export class {ServiceName}Mock {
 **Situation — DTOs not yet confirmed:**
 
 Use the core model type directly as a placeholder — never use `any`.
-The core model should already be re-exported from `./models`.
 
 ```typescript
 // DEV ONLY — do not commit
 import { signal, Signal } from '@angular/core';
+import { HttpParams } from '@angular/common/http';
 import { of } from 'rxjs';
 import { {Model} } from './models'; // core model as placeholder
 
@@ -116,7 +118,7 @@ const MOCK_{MODEL}_DETAIL: {Model} = {
 
 export class {ServiceName}Mock {
 
-    get{Model}s() {
+    get{Model}s(_params: HttpParams) {
         return of(MOCK_{MODEL}S);
     }
 
@@ -142,6 +144,7 @@ export class {ServiceName}Mock {
 ```typescript
 // DEV ONLY — do not commit
 import { signal, Signal } from '@angular/core';
+import { HttpParams } from '@angular/common/http';
 import { of } from 'rxjs';
 import {
     BrowseCompanyDto,
@@ -160,7 +163,7 @@ const MOCK_COMPANY_DETAIL: GetCompanyDto = {
 
 export class CompanyManagementApiMock {
 
-    getCompanies() {
+    getCompanies(_params: HttpParams) {
         return of(MOCK_COMPANIES);
     }
 
@@ -194,6 +197,7 @@ export class CompanyManagementApiMock {
 ## Project Context
 
 - Mock class does NOT extend or implement the real api class — just mirrors public methods
+- `getXxx` accepts `HttpParams` but ignores it (`_params` convention)
 - `createGetResource` is replaced with a plain object using `signal()`
 - All mutations log to console for easy debugging
 - Mock data constants are declared at the top of the file for easy editing
