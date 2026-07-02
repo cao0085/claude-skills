@@ -67,6 +67,18 @@ export type Update{Model}ReqBody = Omit<{Model}, 'readonlyField'>;
 - Path: `src/app/features/{group}/{feature-name}/{featureName}.api.ts`
 - **No cache pattern** — the component owns pagination/query state and calls the API directly each time
 - Mutations return the observable directly; no `tap` / invalidation needed
+- **Permission annotations (required)** — add a single comment block at the top of the class body, mapping each backend permission (`FEATURE:ACTION`) to the methods that require it. Codes come from the backend endpoint records' `IRequirePermission.RequiredPermission => new("FEATURE", "ACTION")` (under `Endpoints/{Feature}`). Group methods by action; if a method has no backend permission yet, mark it `// TODO`.
+
+**Permission block format (place right after `private api = inject(ApiService);`):**
+
+```typescript
+// 權限標記（對應後端 Endpoints/{Feature}，格式 FEATURE:ACTION）
+// {FEATURE}:READ   [get{Model}s(), {camelCaseModel}DetailResource()]
+// {FEATURE}:WRITE  [create{Model}()]
+// {FEATURE}:MODIFY [update{Model}()]
+// {FEATURE}:DELETE [delete{Model}()]
+// TODO: 後端尚無對應權限端點 [someUnmappedMethod()]
+```
 
 **Common method patterns:**
 
@@ -94,6 +106,12 @@ import {
 @Injectable()
 export class {ServiceName} {
     private api = inject(ApiService);
+
+    // 權限標記（對應後端 Endpoints/{Feature}，格式 FEATURE:ACTION）
+    // {FEATURE}:READ   [get{Model}s(), {camelCaseModel}DetailResource()]
+    // {FEATURE}:WRITE  [create{Model}()]
+    // {FEATURE}:MODIFY [update{Model}()]
+    // {FEATURE}:DELETE [delete{Model}()]
 
     get{Model}s(params: HttpParams) {
         // return this.api.get<PaginationResult<Browse{Model}Dto>>('/{endpoint}', params, true);
@@ -202,6 +220,12 @@ import {
 export class CompanyManagementApi {
     private api = inject(ApiService);
 
+    // 權限標記（對應後端 Endpoints/Companies，格式 FEATURE:ACTION）
+    // COMPANY:READ   [getCompanies(), companyDetailResource()]
+    // COMPANY:WRITE  [createCompany()]
+    // COMPANY:MODIFY [updateCompany()]
+    // COMPANY:DELETE [deleteCompany()]
+
     getCompanies(params: HttpParams) {
         // return this.api.get<PaginationResult<BrowseCompanyDto>>('/companies', params, true);
         return this.api.get<BrowseCompanyDto[]>('/companies', params, true);
@@ -239,3 +263,4 @@ export class CompanyManagementApi {
 - **No cache pattern** — list endpoints accept `HttpParams` and return a fresh observable each call
 - The commented-out `PaginationResult<...>` line shows the intended backend response type once the backend is updated
 - Mutations return the observable directly — no `tap` / no cache invalidation needed
+- Every service class carries a **permission annotation block** at the top (`FEATURE:ACTION` → methods), mirroring the backend `IRequirePermission`; unmapped methods are marked `// TODO`

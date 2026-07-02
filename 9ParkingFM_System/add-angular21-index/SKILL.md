@@ -24,8 +24,10 @@ Fill in `index/index.ts` by reading the feature's `api.ts` and `models.ts`.
    - Component class name for `index.ts` (e.g., `CompanyManagement`) — must match `app.routes.ts` loadComponent
    - Feature path (e.g., `src/app/features/admin/company/`)
    - Route path (e.g., `basic/company`) — format: `{group}/{featureName}`
-   - Action code constant name (e.g., `COMPANY_ACTIONS`) — imported from `@app/core/constants/action-codes`
+   - The backend permission feature code (e.g., `COMPANY`) — used as hardcoded `'COMPANY:WRITE'` strings **in the template only**
    - Route group display name if group is new (e.g., `基礎系統`)
+
+> **Permission codes are hardcoded string literals in the HTML** (e.g. `*appHasAction="'COMPANY:WRITE'"`). There is **no** `action-codes.ts` constant and **no** `protected readonly XXX_ACTIONS` on the component. `index.ts` does not import or expose any action constant.
 
 ### Step 2: Analyze api.ts
 
@@ -36,7 +38,7 @@ Scan public methods and map to patterns:
 | `getXxx(params)` | `queryParams` signal + `xxxs` signal + `totalCount` signal + `isLoading` signal + `filterForm` + `onSearch()` + `onReset()` + `onQueryParamsChange()` + `refresh()` |
 | `createXxx()` | `isCreateXxxModalVisible` signal + `onXxxCreated()` |
 | `xxxDetailResource()` | `selectedXxxId` signal + `openDetail()` + `openEdit()` + `openInEditMode` signal + `onXxxUpdated()` |
-| `deleteXxx()` | `deleteXxx()` with `modal.confirm` |
+| `deleteXxx()` | `deleteXxx()` using injected `ConfirmDeleteService` |
 
 ### Step 3: Generate index.ts
 
@@ -47,9 +49,22 @@ import { withSkeletonDelay } from '@app/shared/utils/with-skeleton-delay';
 import { CommonModule } from '@angular/common';
 import { Component, inject, signal, OnInit, DestroyRef } from '@angular/core';
 import { NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
-import { HttpErrorResponse, HttpParams } from '@angular/common/http';
+import { HttpErrorResponse } from '@angular/common/http';
+import { toHttpParams } from '@app/core/utils/http-params.utils';
 import { HasActionDirective } from '@app/shared/directives/has-action.directive';
-import { PaginationResult } from '@app/core/models/pagination';
+import { RwdColDirective } from '@app/shared/directives/rwd-col.directive';
+import { ConfirmDeleteService } from '@app/shared/components/confirm-delete/confirm-delete.service';
+```
+
+> `HasActionDirective` + `RwdColDirective` are always in the component `imports` array (template uses `*appHasAction` and `appRwdCol`). If the table has a "更多操作 ⋯" dropdown, also add `NzDropdownModule`. **Do not** import `NzModalModule` / `NzModalService` just for delete — deletion goes through the injected `ConfirmDeleteService`.
+
+**Injected members:**
+```typescript
+private fb = inject(NonNullableFormBuilder);
+private {camelCaseModel}Api = inject({ServiceName});
+private destroyRef = inject(DestroyRef);
+private confirmDelete = inject(ConfirmDeleteService); // only if deleteXxx exists
+private message = inject(NzMessageService);
 ```
 
 **Signal groups:**
@@ -173,10 +188,18 @@ on{Model}Updated(body: Update{Model}ReqBody) {
 }
 
 // ==================== Delete ====================
+// 用共用 ConfirmDeleteService；重要資料傳 keyword → 需重打該值才能確認
 delete{Model}({camelCaseModel}: Browse{Model}Dto) {
-    this.modal.confirm({
-        nzTitle: `確定要刪除「 ${{camelCaseModel}.displayName} 」嗎？`,
-        nzOnOk: () => {
+    this.confirmDelete
+        .open({
+            title: '刪除{中文名}',
+            message: `確定要刪除「${{camelCaseModel}.{labelField}}」嗎？此操作無法復原。`,
+            keyword: {camelCaseModel}.{keyField},   // 一般刪除可省略此兩行
+            keywordLabel: '{keyField 中文}',
+        })
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe((ok) => {
+            if (!ok) return;
             this.{camelCaseModel}Api
                 .delete{Model}({camelCaseModel}.id)
                 .pipe(takeUntilDestroyed(this.destroyRef))
@@ -193,46 +216,37 @@ delete{Model}({camelCaseModel}: Browse{Model}Dto) {
                         this.message.error(detail);
                     },
                 });
-        },
-    });
+        });
 }
 
 // ==================== Private ====================
 private refresh() {
     const q = this.queryParams();
-    const fromObject = Object.fromEntries(
-        Object.entries(q).filter(([, v]) => v !== undefined && v !== null)
-    );
-    const params = new HttpParams({ fromObject });
 
     this.{camelCaseModel}Api
-        .get{Model}s(params)
+        .get{Model}s(toHttpParams(q))
         .pipe(
             withSkeletonDelay(v => this.isLoading.set(v)),
             takeUntilDestroyed(this.destroyRef),
         )
         .subscribe(result => {
-            // TODO: 後端換新格式後直接使用 result.items / result.totalCount
-            const paginatedResult: PaginationResult<Browse{Model}Dto> = {
-                items: result,
-                totalCount: result.length,
-                totalPages: 1,
-                pageNumber: q.pageNumber ?? 1,
-                pageSize: q.pageSize ?? 10,
-            };
-            this.{camelCaseModel}s.set(paginatedResult.items);
-            this.totalCount.set(paginatedResult.totalCount);
+            this.{camelCaseModel}s.set(result.items);
+            this.totalCount.set(result.totalCount);
+            // 後端有修正分頁時才同步回 SOT，避免無謂 re-fetch
+            if (result.pageNumber !== q.pageNumber || result.pageSize !== q.pageSize) {
+                this.queryParams.update(p => ({ ...p, pageNumber: result.pageNumber, pageSize: result.pageSize }));
+            }
         });
 }
 ```
 
-> ⚠️ When the backend switches to `PaginationResult<Browse{Model}Dto>`, change `api.ts` return type and simplify `refresh()` to `this.{camelCaseModel}s.set(result.items); this.totalCount.set(result.totalCount);`
+> ⚠️ `refresh()` assumes `get{Model}s()` returns `PaginationResult<Browse{Model}Dto>`. If the backend still returns a bare array, temporarily map it: `this.{camelCaseModel}s.set(result); this.totalCount.set(result.length);` and drop the page-sync block until the backend is updated.
 
 ---
 
 ## Example
 
-**Input:** `admin/company`, api.ts has `getCompanies(params)`, `createCompany`, `companyDetailResource`, `updateCompany`, `deleteCompany`. Action code: `COMPANY_ACTIONS`.
+**Input:** `admin/company`, api.ts has `getCompanies(params)`, `createCompany`, `companyDetailResource`, `updateCompany`, `deleteCompany`. Permission feature: `COMPANY`.
 
 **Output `src/app/features/admin/company/index/index.ts`:**
 
@@ -242,7 +256,8 @@ import { withSkeletonDelay } from '@app/shared/utils/with-skeleton-delay';
 import { CommonModule } from '@angular/common';
 import { Component, inject, signal, OnInit, DestroyRef } from '@angular/core';
 import { NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
-import { HttpErrorResponse, HttpParams } from '@angular/common/http';
+import { HttpErrorResponse } from '@angular/common/http';
+import { toHttpParams } from '@app/core/utils/http-params.utils';
 
 import {
     BrowseCompanyDto,
@@ -253,22 +268,22 @@ import {
     COMPANY_TYPE_OPTIONS,
     CompanyType,
 } from '../models';
-import { PaginationResult } from '@app/core/models/pagination';
-import { COMPANY_ACTIONS } from '@app/core/constants/action-codes';
 import { HasActionDirective } from '@app/shared/directives/has-action.directive';
+import { RwdColDirective } from '@app/shared/directives/rwd-col.directive';
+import { ConfirmDeleteService } from '@app/shared/components/confirm-delete/confirm-delete.service';
 import { CompanyManagementApi } from '../company-management.api';
 import { CreateCompanyModal } from '../create-company-modal/create-company-modal';
 import { DetailModal } from '../detail-modal/detail-modal';
 
 import { NzButtonModule } from 'ng-zorro-antd/button';
 import { NzDividerModule } from 'ng-zorro-antd/divider';
+import { NzDropdownModule } from 'ng-zorro-antd/dropdown';
 import { NzFlexModule } from 'ng-zorro-antd/flex';
 import { NzFormModule } from 'ng-zorro-antd/form';
 import { NzGridModule } from 'ng-zorro-antd/grid';
 import { NzIconModule } from 'ng-zorro-antd/icon';
 import { NzInputModule } from 'ng-zorro-antd/input';
 import { NzMessageService } from 'ng-zorro-antd/message';
-import { NzModalModule, NzModalService } from 'ng-zorro-antd/modal';
 import { NzSelectModule } from 'ng-zorro-antd/select';
 import { NzSkeletonModule } from 'ng-zorro-antd/skeleton';
 import { NzTableModule, NzTableQueryParams } from 'ng-zorro-antd/table';
@@ -286,17 +301,18 @@ import { NzTagModule } from 'ng-zorro-antd/tag';
         CompanyTypePipe,
         NzButtonModule,
         NzDividerModule,
+        NzDropdownModule,
         NzFlexModule,
         NzFormModule,
         NzGridModule,
         NzIconModule,
         NzInputModule,
-        NzModalModule,
         NzSelectModule,
         NzSkeletonModule,
         NzTableModule,
         NzTagModule,
         HasActionDirective,
+        RwdColDirective,
     ],
     templateUrl: './index.html',
     styleUrl: './index.scss',
@@ -305,11 +321,10 @@ export class CompanyManagement implements OnInit {
     private fb = inject(NonNullableFormBuilder);
     private companyApi = inject(CompanyManagementApi);
     private destroyRef = inject(DestroyRef);
-    private modal = inject(NzModalService);
+    private confirmDelete = inject(ConfirmDeleteService);
     private message = inject(NzMessageService);
 
     readonly COMPANY_TYPE_OPTIONS = COMPANY_TYPE_OPTIONS;
-    protected readonly COMPANY_ACTIONS = COMPANY_ACTIONS;
 
     /**
      * SOT - Request
@@ -430,9 +445,16 @@ export class CompanyManagement implements OnInit {
 
     // ==================== Delete ====================
     deleteCompany(company: BrowseCompanyDto) {
-        this.modal.confirm({
-            nzTitle: `確定要刪除「 ${company.fullName} 」嗎？`,
-            nzOnOk: () => {
+        this.confirmDelete
+            .open({
+                title: '刪除企業',
+                message: `確定要刪除「${company.fullName}」嗎？此操作無法復原。`,
+                keyword: company.companyCode,
+                keywordLabel: '企業編碼',
+            })
+            .pipe(takeUntilDestroyed(this.destroyRef))
+            .subscribe((ok) => {
+                if (!ok) return;
                 this.companyApi
                     .deleteCompany(company.id)
                     .pipe(takeUntilDestroyed(this.destroyRef))
@@ -449,35 +471,26 @@ export class CompanyManagement implements OnInit {
                             this.message.error(detail);
                         },
                     });
-            },
-        });
+            });
     }
 
     // ==================== Private ====================
     private refresh() {
         const q = this.queryParams();
-        const fromObject = Object.fromEntries(
-            Object.entries(q).filter(([, v]) => v !== undefined && v !== null)
-        );
-        const params = new HttpParams({ fromObject });
 
         this.companyApi
-            .getCompanies(params)
+            .getCompanies(toHttpParams(q))
             .pipe(
                 withSkeletonDelay(v => this.isLoading.set(v)),
                 takeUntilDestroyed(this.destroyRef),
             )
             .subscribe(result => {
-                // TODO: 後端換新格式後移除此 mock
-                const paginatedResult: PaginationResult<BrowseCompanyDto> = {
-                    items: result,
-                    totalCount: result.length,
-                    totalPages: 1,
-                    pageNumber: q.pageNumber ?? 1,
-                    pageSize: q.pageSize ?? 10,
-                };
-                this.companies.set(paginatedResult.items);
-                this.totalCount.set(paginatedResult.totalCount);
+                this.companies.set(result.items);
+                this.totalCount.set(result.totalCount);
+                // 後端有修正分頁時才同步回 SOT，避免無謂 re-fetch
+                if (result.pageNumber !== q.pageNumber || result.pageSize !== q.pageSize) {
+                    this.queryParams.update(p => ({ ...p, pageNumber: result.pageNumber, pageSize: result.pageSize }));
+                }
             });
     }
 }
@@ -532,13 +545,14 @@ File: `src/app/app.routes.ts`
 - `imports` in `@Component` — only include what the template actually uses
 - Pipe classes (e.g. `CompanyTypePipe`) go in `imports`, not `providers`
 - `NzMessageService` goes in `providers`
-- `NzModalService` is injected directly (not in `providers`), but **`NzModalModule` must be in `imports`**
+- **Permission codes are hardcoded strings in the HTML** (`*appHasAction="'COMPANY:WRITE'"`); `index.ts` neither imports nor exposes any action-code constant
+- **Delete uses the shared `ConfirmDeleteService`** (injected, `providedIn: 'root'`); do not use `NzModalService.confirm` and do not import `NzModalModule` for it
+- `RwdColDirective` is always imported (template filter cols use `appRwdCol`); `NzDropdownModule` when the action column has a "更多 ⋯" dropdown
 - Always use `takeUntilDestroyed(this.destroyRef)` for all subscriptions
 - `withSkeletonDelay` wraps the list fetch only
-- Delete error handling always checks `err.status === 422` for backend validation messages
+- Delete error handling checks `err.status === 422` for backend validation messages
 - `export class {ClassName}` in `index.ts` must match the `loadComponent` `.then(m => m.{ClassName})` in `app.routes.ts`
-- Action codes are `protected readonly` so the template can use `*appHasAction`
 - Enum options (e.g. `COMPANY_TYPE_OPTIONS`) are `readonly` class properties for template binding
 - Signal naming: list = `{camelCaseModel}s`, total = `totalCount`, selected = `selected{Model}Id`
 - `queryParams` contains ALL request params (pagination + filters) as single SOT
-- `refresh()` builds `HttpParams` by filtering out `undefined`/`null` values from `queryParams()`
+- `refresh()` sends `toHttpParams(queryParams())`, sets `result.items` / `result.totalCount`, and only writes pagination back to `queryParams` when the backend clamped it
